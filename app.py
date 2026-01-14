@@ -1,68 +1,109 @@
 import streamlit as st
 import pandas as pd
 import os
+import datetime
 
-# Fichiers de sauvegarde permanente
+# --- FICHIERS DE SAUVEGARDE PERMANENTE ---
 USER_FILE = "users.csv"
+ART_FILE = "articles.csv"
+VENTE_FILE = "ventes.csv"
 
-# Fonction pour enregistrer un nouvel utilisateur
-def save_user(nom, tel):
-    df = pd.DataFrame([[nom, tel]], columns=["nom", "tel"])
-    if not os.path.isfile(USER_FILE):
-        df.to_csv(USER_FILE, index=False)
+# Fonction pour charger les données
+def load_data(file, columns):
+    if os.path.exists(file):
+        return pd.read_csv(file)
+    return pd.DataFrame(columns=columns)
+
+# Fonction pour sauvegarder une ligne
+def save_line(file, data, columns):
+    df_new = pd.DataFrame([data], columns=columns)
+    if not os.path.isfile(file):
+        df_new.to_csv(file, index=False)
     else:
-        df.to_csv(USER_FILE, mode='a', header=False, index=False)
+        df_new.to_csv(file, mode='a', header=False, index=False)
 
-st.title("LwangoB Pro")
-
-# Initialisation de la session
+# Initialisation de l'état de session
 if 'auth' not in st.session_state:
     st.session_state.auth = False
 if 'user_name' not in st.session_state:
     st.session_state.user_name = ""
 
-# --- ÉCRAN D'ACCÈS ---
+st.set_page_config(page_title="LwangoB Pro", page_icon="🏍️")
+
+# --- SYSTÈME D'ACCÈS ---
 if not st.session_state.auth:
-    tab1, tab2 = st.tabs(["Connexion", "Inscription"])
+    st.title("🔐 Accès LwangoB")
+    t1, t2 = st.tabs(["Connexion", "Inscription Rapide"])
     
-    with tab2:
-        n = st.text_input("Nom complet", key="reg_nom")
-        t = st.text_input("Téléphone", key="reg_tel")
+    with t2:
+        n = st.text_input("Nom complet", key="reg_n")
+        t = st.text_input("Numéro de téléphone", key="reg_t")
         if st.button("S'inscrire et Entrer"):
             if n and t:
-                save_user(n, t)
-                # CONNEXION AUTOMATIQUE ICI
+                save_line(USER_FILE, [n, t], ["nom", "tel"])
                 st.session_state.auth = True
                 st.session_state.user_name = n
-                st.success(f"Bienvenue {n} ! Redirection...")
                 st.rerun()
             else:
-                st.error("Veuillez remplir tous les champs.")
+                st.error("Remplissez les deux cases.")
 
-    with tab1:
-        un = st.text_input("Votre Nom", key="log_nom")
-        ut = st.text_input("Votre Tel", type="password", key="log_tel")
+    with t1:
+        un = st.text_input("Nom", key="log_n")
+        ut = st.text_input("Tel", type="password", key="log_t")
         if st.button("Se connecter"):
-            if os.path.isfile(USER_FILE):
-                db = pd.read_csv(USER_FILE)
-                # Vérification
-                user_match = db[(db['nom'] == un) & (db['tel'].astype(str) == ut)]
-                if not user_match.empty:
-                    st.session_state.auth = True
-                    st.session_state.user_name = un
-                    st.rerun()
-                else:
-                    st.error("Identifiants inconnus. Vérifiez le nom ou inscrivez-vous.")
+            db_u = load_data(USER_FILE, ["nom", "tel"])
+            if not db_u[(db_u['nom'] == un) & (db_u['tel'].astype(str) == ut)].empty:
+                st.session_state.auth = True
+                st.session_state.user_name = un
+                st.rerun()
             else:
-                st.error("Aucun utilisateur enregistré. Veuillez vous inscrire.")
+                st.error("Identifiants inconnus")
 
-# --- INTERFACE DE L'APP (UNE FOIS CONNECTÉ) ---
+# --- APPLICATION PRINCIPALE ---
 else:
-    st.sidebar.success(f"Connecté : {st.session_state.user_name}")
-    st.header(f"👋 Bienvenue dans l'interface LwangoB, {st.session_state.user_name}")
+    st.sidebar.title(f"👤 {st.session_state.user_name}")
+    menu = st.sidebar.radio("Menu Principal", ["📈 Ventes", "📦 Gestion Stock", "💬 Messagerie Team"])
     
-    # Ajoutez ici vos boutons de gestion de stock et ventes
-    if st.button("Déconnexion"):
+    if st.sidebar.button("Déconnexion"):
         st.session_state.auth = False
-        st.session_state.user_name = ""
         st.rerun()
+
+    # --- ONGLET VENTES ---
+    if menu == "📈 Ventes":
+        st.header("📲 Enregistrer une vente")
+        db_a = load_data(ART_FILE, ["nom_article"])
+        
+        if db_a.empty:
+            st.warning("Allez dans 'Gestion Stock' pour ajouter des articles d'abord.")
+        else:
+            article = st.selectbox("Choisir l'article", db_a['nom_article'].tolist())
+            quantite = st.number_input("Quantité", min_value=1, value=1)
+            if st.button("Valider la vente"):
+                date_v = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                save_line(VENTE_FILE, [date_v, article, quantite, st.session_state.user_name], ["date", "article", "qty", "vendeur"])
+                st.success("Vente enregistrée !")
+        
+        st.subheader("Dernières transactions")
+        st.dataframe(load_data(VENTE_FILE, ["date", "article", "qty", "vendeur"]).tail(10))
+
+    # --- ONGLET STOCK ---
+    elif menu == "📦 Gestion Stock":
+        st.header("📦 Ajouter des articles au catalogue")
+        nom_art = st.text_input("Nom de la pièce ou moto (ex: Bougie, Pneu, Haojin)")
+        if st.button("Ajouter définitivement"):
+            if nom_art:
+                save_line(ART_FILE, [nom_art], ["nom_article"])
+                st.success(f"{nom_art} ajouté au stock !")
+            else:
+                st.error("Entrez un nom d'article.")
+        
+        st.subheader("Liste actuelle")
+        st.table(load_data(ART_FILE, ["nom_article"]))
+
+    # --- ONGLET MESSAGERIE ---
+    elif menu == "💬 Messagerie Team":
+        st.header("💬 Communication d'équipe")
+        msg = st.text_area("Votre message pour l'équipe")
+        if st.button("Diffuser le message"):
+            st.toast("Message envoyé à l'équipe !")
+            # Note: Pour une messagerie persistante réelle, on pourrait créer un messages.csv ici aussi
