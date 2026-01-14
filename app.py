@@ -7,6 +7,7 @@ import datetime
 USER_FILE = "users.csv"
 ART_FILE = "articles.csv"
 VENTE_FILE = "ventes.csv"
+MSG_FILE = "messages_v2.csv" # Utilisation d'une nouvelle version pour les messages
 
 # Fonction pour charger les données
 def load_data(file, columns):
@@ -72,7 +73,6 @@ else:
     if menu == "📈 Ventes":
         st.header("📲 Enregistrer une vente")
         db_a = load_data(ART_FILE, ["nom_article"])
-        
         if db_a.empty:
             st.warning("Allez dans 'Gestion Stock' pour ajouter des articles d'abord.")
         else:
@@ -82,28 +82,73 @@ else:
                 date_v = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
                 save_line(VENTE_FILE, [date_v, article, quantite, st.session_state.user_name], ["date", "article", "qty", "vendeur"])
                 st.success("Vente enregistrée !")
-        
         st.subheader("Dernières transactions")
         st.dataframe(load_data(VENTE_FILE, ["date", "article", "qty", "vendeur"]).tail(10))
 
     # --- ONGLET STOCK ---
     elif menu == "📦 Gestion Stock":
-        st.header("📦 Ajouter des articles au catalogue")
-        nom_art = st.text_input("Nom de la pièce ou moto (ex: Bougie, Pneu, Haojin)")
+        st.header("📦 Catalogue Articles")
+        nom_art = st.text_input("Nom de la pièce ou moto")
         if st.button("Ajouter définitivement"):
             if nom_art:
                 save_line(ART_FILE, [nom_art], ["nom_article"])
-                st.success(f"{nom_art} ajouté au stock !")
-            else:
-                st.error("Entrez un nom d'article.")
-        
+                st.success(f"{nom_art} ajouté !")
         st.subheader("Liste actuelle")
         st.table(load_data(ART_FILE, ["nom_article"]))
 
-    # --- ONGLET MESSAGERIE ---
+    # --- ONGLET MESSAGERIE AVANCÉE ---
     elif menu == "💬 Messagerie Team":
-        st.header("💬 Communication d'équipe")
-        msg = st.text_area("Votre message pour l'équipe")
-        if st.button("Diffuser le message"):
-            st.toast("Message envoyé à l'équipe !")
-            # Note: Pour une messagerie persistante réelle, on pourrait créer un messages.csv ici aussi
+        st.header("💬 Envoyer un message")
+        
+        # Charger les utilisateurs pour le répertoire
+        db_u = load_data(USER_FILE, ["nom", "tel"])
+        collegues = db_u[db_u['nom'] != st.session_state.user_name]['nom'].tolist()
+        
+        # Choix du type de message
+        type_msg = st.radio("Type de message", ["Privé (Un seul collègue)", "Groupe (Toute l'équipe)"], horizontal=True)
+        
+        if type_msg == "Privé (Un seul collègue)":
+            if not collegues:
+                st.info("Aucun autre collègue inscrit pour le moment.")
+                dest = None
+            else:
+                dest = st.selectbox("Choisir le destinataire", collegues)
+        else:
+            dest = "GROUPE"
+
+        contenu = st.text_area("Ecrire votre message")
+        
+        if st.button("Envoyer"):
+            if contenu and (dest or type_msg == "Groupe (Toute l'équipe)"):
+                date_m = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                save_line(MSG_FILE, [date_m, st.session_state.user_name, dest, contenu], ["date", "exp", "dest", "msg"])
+                st.success("Message envoyé !")
+            else:
+                st.error("Le message est vide ou aucun destinataire sélectionné.")
+
+        st.divider()
+        st.subheader("📥 Boîte de réception")
+        
+        db_m = load_data(MSG_FILE, ["date", "exp", "dest", "msg"])
+        
+        # Filtrer pour voir : 
+        # 1. Les messages qui me sont adressés
+        # 2. Les messages de groupe
+        # 3. Les messages que j'ai envoyés
+        filtre = (db_m['dest'] == st.session_state.user_name) | (db_m['dest'] == "GROUPE") | (db_m['exp'] == st.session_state.user_name)
+        mes_echanges = db_m[filtre]
+
+        if mes_echanges.empty:
+            st.write("Pas encore de messages.")
+        else:
+            for i, row in mes_echanges.iloc[::-1].iterrows():
+                tag = "📢 [GROUPE]" if row['dest'] == "GROUPE" else f"🔒 [PRIVÉ pour {row['dest']}]"
+                if row['exp'] == st.session_state.user_name:
+                    color = "blue"
+                    exp_name = "Moi"
+                else:
+                    color = "green"
+                    exp_name = row['exp']
+                
+                st.markdown(f"**{tag}** | _{row['date']}_")
+                st.info(f"**{exp_name}** : {row['msg']}")
