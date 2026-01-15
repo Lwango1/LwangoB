@@ -3,11 +3,11 @@ import pandas as pd
 import os
 import datetime
 
-# --- FICHIERS DE SAUVEGARDE PERMANENTE ---
+# --- FICHIERS DE SAUVEGARDE ---
 USER_FILE = "users.csv"
 ART_FILE = "articles.csv"
 VENTE_FILE = "ventes.csv"
-MSG_FILE = "messages_v3.csv" 
+MSG_FILE = "messages_v3.csv"
 
 # Fonction pour charger les données sans erreur
 def load_data(file, columns):
@@ -37,114 +37,109 @@ if 'user_name' not in st.session_state:
 
 # --- SYSTÈME D'ACCÈS ---
 if not st.session_state.auth:
-    st.title("🔐 Accès LwangoB")
-    t1, t2 = st.tabs(["Connexion", "Inscription Rapide"])
+    st.title("🔐 Accès LwangoB Pro")
+    t1, t2 = st.tabs(["Se Connecter", "S'inscrire (Nouveau)"])
     
     with t2:
-        n = st.text_input("Nom complet", key="reg_n")
-        t = st.text_input("Numéro de téléphone", key="reg_t")
-        if st.button("S'inscrire et Entrer"):
+        st.info("Inscrivez-vous ici pour créer votre accès permanent.")
+        n = st.text_input("Nom complet", key="reg_n").strip()
+        t = st.text_input("Téléphone", key="reg_t").strip()
+        if st.button("Créer mon compte et Entrer"):
             if n and t:
                 save_line(USER_FILE, [n, t], ["nom", "tel"])
                 st.session_state.auth = True
                 st.session_state.user_name = n
-                st.success(f"Bienvenue {n} !")
+                st.success(f"Bienvenue {n} ! Votre compte est prêt.")
                 st.rerun()
             else:
-                st.error("Remplissez les deux cases.")
+                st.error("Veuillez remplir les deux cases.")
 
     with t1:
-        un = st.text_input("Nom", key="log_n")
-        ut = st.text_input("Tel (Sert de mot de passe)", type="password", key="log_t")
-        if st.button("Se connecter"):
+        un = st.text_input("Votre Nom", key="log_n").strip()
+        ut = st.text_input("Votre Téléphone", type="password", key="log_t").strip()
+        if st.button("Entrer dans l'App"):
             db_u = load_data(USER_FILE, ["nom", "tel"])
             if not db_u.empty:
-                # On s'assure que la comparaison se fait en texte (string)
-                user_match = db_u[(db_u['nom'] == un) & (db_u['tel'].astype(str) == str(ut))]
+                # Comparaison intelligente (ignore les espaces et majuscules)
+                db_u['nom_low'] = db_u['nom'].astype(str).str.lower().str.strip()
+                db_u['tel_str'] = db_u['tel'].astype(str).str.strip()
+                
+                user_match = db_u[(db_u['nom_low'] == un.lower()) & (db_u['tel_str'] == ut)]
+                
                 if not user_match.empty:
                     st.session_state.auth = True
-                    st.session_state.user_name = un
+                    st.session_state.user_name = user_match.iloc[0]['nom']
                     st.rerun()
                 else:
-                    st.error("Nom ou téléphone incorrect.")
+                    st.error("Identifiants inconnus. Vérifiez ou créez un compte.")
             else:
-                st.error("Aucun utilisateur inscrit. Allez sur l'onglet Inscription.")
+                st.warning("Aucun utilisateur dans la base. Inscrivez-vous d'abord.")
 
 # --- APPLICATION PRINCIPALE ---
 else:
     st.sidebar.title(f"👤 {st.session_state.user_name}")
-    menu = st.sidebar.radio("Menu Principal", ["📈 Ventes", "📦 Gestion Stock", "💬 Messagerie Team"])
+    menu = st.sidebar.radio("Navigation", ["📈 Ventes", "📦 Stock", "💬 Messagerie"])
     
-    if st.sidebar.button("Déconnexion"):
+    if st.sidebar.button("Quitter l'application"):
         st.session_state.auth = False
         st.rerun()
 
     # --- ONGLET VENTES ---
     if menu == "📈 Ventes":
-        st.header("📲 Enregistrer une vente")
+        st.header("📲 Nouvelle Vente")
         db_a = load_data(ART_FILE, ["nom_article"])
         if db_a.empty:
-            st.warning("Ajoutez d'abord des articles dans le Stock.")
+            st.warning("Ajoutez des articles dans l'onglet 'Stock' avant de vendre.")
         else:
-            article = st.selectbox("Choisir l'article", db_a['nom_article'].tolist())
-            quantite = st.number_input("Quantité", min_value=1, value=1)
-            if st.button("Valider la vente"):
-                date_v = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
-                save_line(VENTE_FILE, [date_v, article, quantite, st.session_state.user_name], ["date", "article", "qty", "vendeur"])
-                st.success("Vente enregistrée !")
+            article = st.selectbox("Article vendu", db_a['nom_article'].tolist())
+            qty = st.number_input("Quantité", min_value=1, value=1)
+            if st.button("Enregistrer la vente"):
+                dt = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                save_line(VENTE_FILE, [dt, article, qty, st.session_state.user_name], ["date", "article", "qty", "vendeur"])
+                st.success("Vente validée et sauvegardée !")
         
-        st.subheader("Historique récent")
-        st.dataframe(load_data(VENTE_FILE, ["date", "article", "qty", "vendeur"]).tail(10))
+        st.subheader("Historique des ventes")
+        st.dataframe(load_data(VENTE_FILE, ["date", "article", "qty", "vendeur"]).iloc[::-1])
 
     # --- ONGLET STOCK ---
-    elif menu == "📦 Gestion Stock":
-        st.header("📦 Catalogue Articles")
-        nom_art = st.text_input("Nom de la pièce ou moto")
-        if st.button("Ajouter définitivement"):
-            if nom_art:
-                save_line(ART_FILE, [nom_art], ["nom_article"])
-                st.success(f"{nom_art} ajouté au stock !")
+    elif menu == "📦 Stock":
+        st.header("📦 Gestion du Catalogue")
+        n_art = st.text_input("Nom de l'article à ajouter")
+        if st.button("Ajouter au Stock"):
+            if n_art:
+                save_line(ART_FILE, [n_art], ["nom_article"])
+                st.success(f"{n_art} est maintenant disponible.")
+                st.rerun()
+        
+        st.subheader("Articles enregistrés")
         st.table(load_data(ART_FILE, ["nom_article"]))
 
     # --- ONGLET MESSAGERIE ---
-    elif menu == "💬 Messagerie Team":
-        st.header("💬 Communication")
-        
+    elif menu == "💬 Messagerie":
+        st.header("💬 Boîte de communication")
         db_u = load_data(USER_FILE, ["nom", "tel"])
         collegues = db_u[db_u['nom'] != st.session_state.user_name]['nom'].tolist()
         
-        type_msg = st.radio("Destinataire :", ["Groupe (Tout le monde)", "Privé (Un collègue)"], horizontal=True)
+        opt = st.radio("Destinataire", ["Tout le groupe", "Un collègue spécifique"], horizontal=True)
+        target = "GROUPE"
+        if opt == "Un collègue spécifique" and collegues:
+            target = st.selectbox("Choisir le destinataire", collegues)
         
-        dest = "GROUPE"
-        if type_msg == "Privé (Un collègue)":
-            if collegues:
-                dest = st.selectbox("Choisir le collègue", collegues)
-            else:
-                st.info("Vous êtes seul pour le moment.")
-                dest = None
-
-        msg_text = st.text_area("Votre message")
+        m_txt = st.text_area("Votre message")
         if st.button("Envoyer"):
-            if msg_text and dest:
-                date_m = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
-                save_line(MSG_FILE, [date_m, st.session_state.user_name, dest, msg_text], ["date", "exp", "dest", "msg"])
-                st.success("Message envoyé !")
+            if m_txt:
+                dt_m = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+                save_line(MSG_FILE, [dt_m, st.session_state.user_name, target, m_txt], ["date", "exp", "dest", "msg"])
+                st.toast("Message transmis !")
                 st.rerun()
 
         st.divider()
-        st.subheader("📥 Discussions")
+        st.subheader("📥 Messages reçus & Groupe")
         db_m = load_data(MSG_FILE, ["date", "exp", "dest", "msg"])
-        
         if not db_m.empty:
-            # Filtre : messages pour moi, messages de groupe, ou messages que j'ai envoyés
-            mes_echanges = db_m[(db_m['dest'] == st.session_state.user_name) | 
-                                (db_m['dest'] == "GROUPE") | 
-                                (db_m['exp'] == st.session_state.user_name)]
-            
-            for i, row in mes_echanges.iloc[::-1].iterrows():
-                tag = "📢 GROUPE" if row['dest'] == "GROUPE" else "🔒 PRIVÉ"
-                header = f"**{row['exp']}** ➔ **{row['dest']}** | _{row['date']}_ ({tag})"
-                st.write(header)
-                st.info(row['msg'])
-        else:
-            st.write("Aucun message.")
+            filtre = (db_m['dest'] == st.session_state.user_name) | (db_m['dest'] == "GROUPE") | (db_m['exp'] == st.session_state.user_name)
+            for i, r in db_m[filtre].iloc[::-1].iterrows():
+                with st.chat_message("user" if r['exp'] == st.session_state.user_name else "assistant"):
+                    lbl = "📢 GROUPE" if r['dest'] == "GROUPE" else "🔒 PRIVÉ"
+                    st.write(f"**{r['exp']}** ({r['date']}) - *{lbl}*")
+                    st.info(r['msg'])
